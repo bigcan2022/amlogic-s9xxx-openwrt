@@ -1,0 +1,70 @@
+name: Patch CM211 image with offline Mihomo core
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/patch-cm211-image.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-image:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download successful s905l3b image
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p work out
+          gh release download OpenWrt_immortalwrt_master_save_2026.09 \
+            --repo "${{ github.repository }}" \
+            --pattern 'openwrt_immortalwrt_amlogic_s905l3b_k6.18.49_2026.09.07.img.gz' \
+            --dir work
+          gzip -t work/*.img.gz
+          gzip -dk work/*.img.gz
+
+      - name: Inject latest official ARM64 Meta core
+        run: |
+          set -euxo pipefail
+          image_file=$(find work -maxdepth 1 -name '*.img' -print -quit)
+          loopdev=$(sudo losetup --find --show --partscan "$image_file")
+          cleanup() {
+            sudo umount /mnt/cm211-root 2>/dev/null || true
+            sudo losetup -d "$loopdev" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          sudo mkdir -p /mnt/cm211-root
+          sudo mount "${loopdev}p2" /mnt/cm211-root
+
+          mkdir -p work/core
+          curl -fL --retry 3 \
+            'https://raw.githubusercontent.com/vernesong/OpenClash/core/master/meta/clash-linux-arm64.tar.gz' \
+            -o work/core/clash-linux-arm64.tar.gz
+          tar -xzf work/core/clash-linux-arm64.tar.gz -C work/core
+          sudo install -D -m 0755 work/core/clash \
+            /mnt/cm211-root/etc/openclash/core/clash_meta
+
+          sudo test -x /mnt/cm211-root/etc/openclash/core/clash_meta
+          sudo test -f /mnt/cm211-root/etc/init.d/openclash
+          sudo test -f /mnt/cm211-root/etc/uci-defaults/99-cm211-bypass
+          sudo sync
+          cleanup
+          trap - EXIT
+
+          mv "$image_file" out/CM211-1-ZG-S905L3B-ImmortalWrt-6.18.49-OpenClash-Mihomo.img
+          gzip -9 out/*.img
+          sha256sum out/*.img.gz > out/SHA256SUMS
+
+      - name: Publish patched disk image
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag='CM211-ImmortalWrt-6.18.49-final'
+          gh release view "$tag" --repo "${{ github.repository }}" >/dev/null 2>&1 || \
+            gh release create "$tag" --repo "${{ github.repository }}" \
+              --title 'CM211-1-ZG S905L3B ImmortalWrt 6.18.49 final' \
+              --notes 'Disk image with OpenClash, bundled ARM64 Meta/Mihomo core, static 192.168.1.2 bypass-router defaults. This is not yet an Amlogic USB Burning Tool package.'
+          gh release upload "$tag" out/* --repo "${{ github.repository }}" --clobber
