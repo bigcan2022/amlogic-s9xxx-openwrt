@@ -27,10 +27,8 @@ echo "DISTRIB_SOURCECODE='immortalwrt'" >>package/base-files/files/etc/openwrt_r
 echo "DISTRIB_SOURCEBRANCH='master'" >>package/base-files/files/etc/openwrt_release
 
 # Configure ccache for build acceleration
-# Remove existing ccache settings
 sed -i '/CONFIG_DEVEL/d' .config
 sed -i '/CONFIG_CCACHE/d' .config
-# Apply new ccache configuration
 if [[ "${2}" == "true" ]]; then
     echo "CONFIG_DEVEL=y" >>.config
     echo "CONFIG_CCACHE=y" >>.config
@@ -45,6 +43,23 @@ fi
 
 # ------------------------------- Additional customizations -------------------------------
 #
+# CM211-1-ZG bypass-router package set
+cat >>.config <<'EOF'
+CONFIG_PACKAGE_luci-app-openclash=y
+CONFIG_PACKAGE_luci-app-ttyd=y
+CONFIG_PACKAGE_luci-app-diskman=y
+CONFIG_PACKAGE_luci-app-wol=y
+CONFIG_PACKAGE_luci-app-watchcat=y
+CONFIG_PACKAGE_htop=y
+CONFIG_PACKAGE_ethtool=y
+CONFIG_PACKAGE_tcpdump-mini=y
+CONFIG_PACKAGE_kmod-tun=y
+CONFIG_PACKAGE_ca-bundle=y
+CONFIG_PACKAGE_curl=y
+CONFIG_PACKAGE_unzip=y
+CONFIG_PACKAGE_bash=y
+EOF
+
 # Add luci-app-amlogic
 rm -rf package/luci-app-amlogic
 git clone -b main https://github.com/ophub/luci-app-amlogic.git package/luci-app-amlogic
