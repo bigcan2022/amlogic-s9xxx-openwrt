@@ -26,7 +26,7 @@ jobs:
           gzip -t work/*.img.gz
           gzip -dk work/*.img.gz
 
-      - name: Inject latest official ARM64 Meta core
+      - name: Inject Mihomo core and CM211 bypass defaults
         run: |
           set -euxo pipefail
           image_file=$(find work -maxdepth 1 -name '*.img' -print -quit)
@@ -47,9 +47,45 @@ jobs:
           sudo install -D -m 0755 work/core/clash \
             /mnt/cm211-root/etc/openclash/core/clash_meta
 
+          sudo install -d -m 0755 /mnt/cm211-root/etc/uci-defaults
+          sudo tee /mnt/cm211-root/etc/uci-defaults/99-cm211-bypass >/dev/null <<'CM211_DEFAULTS'
+          #!/bin/sh
+          uci -q batch <<'UCI'
+          set system.@system[0].hostname='CM211-OpenWrt'
+          set system.@system[0].timezone='CST-8'
+          set system.@system[0].zonename='Asia/Shanghai'
+          set network.lan.proto='static'
+          set network.lan.ipaddr='192.168.1.2'
+          set network.lan.netmask='255.255.255.0'
+          set network.lan.gateway='192.168.1.1'
+          delete network.lan.dns
+          add_list network.lan.dns='192.168.1.1'
+          set network.lan.delegate='0'
+          set dhcp.lan.ignore='1'
+          set dhcp.lan.dhcpv6='disabled'
+          set dhcp.lan.ra='disabled'
+          set dhcp.lan.ndp='disabled'
+          set firewall.@zone[0].input='ACCEPT'
+          set firewall.@zone[0].output='ACCEPT'
+          set firewall.@zone[0].forward='ACCEPT'
+          UCI
+          uci commit system
+          uci commit network
+          uci commit dhcp
+          uci commit firewall
+          cat > /etc/sysctl.d/99-cm211-bypass.conf <<'SYSCTL'
+          net.ipv4.ip_forward=1
+          net.ipv6.conf.all.disable_ipv6=1
+          net.ipv6.conf.default.disable_ipv6=1
+          SYSCTL
+          exit 0
+          CM211_DEFAULTS
+          sudo chmod 0755 /mnt/cm211-root/etc/uci-defaults/99-cm211-bypass
+
           sudo test -x /mnt/cm211-root/etc/openclash/core/clash_meta
           sudo test -f /mnt/cm211-root/etc/init.d/openclash
-          sudo test -f /mnt/cm211-root/etc/uci-defaults/99-cm211-bypass
+          sudo test -x /mnt/cm211-root/etc/uci-defaults/99-cm211-bypass
+          sudo grep -q "192.168.1.2" /mnt/cm211-root/etc/uci-defaults/99-cm211-bypass
           sudo sync
           cleanup
           trap - EXIT
@@ -66,5 +102,5 @@ jobs:
           gh release view "$tag" --repo "${{ github.repository }}" >/dev/null 2>&1 || \
             gh release create "$tag" --repo "${{ github.repository }}" \
               --title 'CM211-1-ZG S905L3B ImmortalWrt 6.18.49 final' \
-              --notes 'Disk image with OpenClash, bundled ARM64 Meta/Mihomo core, static 192.168.1.2 bypass-router defaults. This is not yet an Amlogic USB Burning Tool package.'
+              --notes 'Disk image with OpenClash, bundled ARM64 Meta/Mihomo core, static 192.168.1.2 bypass-router defaults. This is a disk image, not an Amlogic USB Burning Tool package.'
           gh release upload "$tag" out/* --repo "${{ github.repository }}" --clobber
